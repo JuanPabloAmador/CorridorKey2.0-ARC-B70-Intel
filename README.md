@@ -3,6 +3,9 @@
 Fork of [CorridorKey2.0](https://github.com/nikopueringer/CorridorKey2.0) to run
 on Intel Arc (tested: Pro B70 32 GB).
 
+AI green/blue-screen keying: neural alpha mattes and clean foregrounds
+from chroma footage.
+
 ## Status
 
 Works at 1080p with these settings:
