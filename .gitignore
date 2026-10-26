@@ -24,6 +24,9 @@ vfms/**
 
 # Outputs & Temporary Files
 out*/
+outputs/
+clips/
+.env
 tmp/
 *.mov
 *.mp4

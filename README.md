@@ -22,7 +22,30 @@ Still unstable: brief (~1 s) black spans can occur.
 - Python 3.14 with XPU-enabled PyTorch (the one in Quickstart).
 - ~10 GB for weights, downloaded by `scripts/download_weights.py`.
 
-## Quickstart
+## Quickstart (Docker, recommended)
+
+No local install needed — only Docker + an Intel Arc GPU (`/dev/dri/renderD128`).
+Weights (~5 GB) download themselves on first run into Docker volumes.
+
+```bash
+git clone https://github.com/JuanPabloAmador/CorridorKey2.0-ARC-B70-Intel.git
+cd CorridorKey2.0-ARC-B70-Intel
+cp clips/mi.mp4 clips/          # your chroma footage goes in ./clips
+./ck2 mi.mp4 p1                # output lands in ./outputs/p1 (alpha + fg)
+```
+
+With a first-frame hint (better quality and temporal stability):
+
+```bash
+./ck2 mi.mp4 p1-hint --hint_first_frame /work/in/hint.png --hint_quality 0.95
+```
+
+`./ck2` applies the stable B70 recipe (`--device xpu --hann_chunk 48
+--hann_stride 24 --outputs alpha fg --no_carry_hint`); any flag you pass
+explicitly wins. `./ck2 --help` shows all `infer.py` options. Advanced use
+(custom paths, `docker compose run` directly): see `.env.example`.
+
+## Quickstart (venv, no Docker)
 
 ```bash
 git clone https://github.com/JuanPabloAmador/CorridorKey2.0-ARC-B70-Intel.git

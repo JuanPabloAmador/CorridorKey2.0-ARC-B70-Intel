@@ -1,0 +1,43 @@
+# CorridorKey 2.0 en Intel Arc (XPU). Uso por lotes, sin puertos:
+#   ./ck2 clips/mi.mp4 salidas/p1
+# Los pesos (~5 GB) se descargan solos al primer arranque a volúmenes
+# nombrados; el código va dentro de la imagen (no necesita mounts).
+name: corridorkey2-b70
+
+services:
+  ck2:
+    build:
+      context: .
+      # Base pineada por defecto en el Dockerfile; override si hace falta:
+      # args:
+      #   BASE_IMAGE: heroeswearkapes/comfyui-intel-xpu:2026.08.30-8a33128
+    image: corridorkey2-b70:latest
+    container_name: ${CK2_CONTAINER:-corridorkey2-b70}
+    # La GPU (renderD*) se expone como device; el grupo render da permiso.
+    # RENDER_GID lo calcula el wrapper ./ck2 (getent group render).
+    devices:
+      - ${DRI_DEVICE:-/dev/dri/renderD128}:/dev/dri/renderD128
+    user: "0:0" # el entrypoint baja a TARGET_UID:GID tras preparar permisos
+    environment:
+      TARGET_UID: ${TARGET_UID:-1000}
+      TARGET_GID: ${TARGET_GID:-1000}
+      RENDER_GID: ${RENDER_GID:-}
+      DRI_DEVICE: /dev/dri/renderD128
+      OPENCV_IO_ENABLE_OPENEXR: "1"
+      HF_TOKEN: ${HF_TOKEN:-}
+      CK2_SKIP_DOWNLOAD: ${CK2_SKIP_DOWNLOAD:-0}
+    volumes:
+      # Pesos y caché: persisten entre runs, fuera del checkout.
+      - ck2-weights:/app/weights
+      - ck2-vfms:/app/vfms
+      - ck2-hf:/cache/hf
+      # E/S del usuario (el wrapper ./ck2 los fija a ./clips y ./outputs).
+      - ${CK2_INPUT_DIR:-./clips}:/work/in:ro
+      - ${CK2_OUTPUT_DIR:-./outputs}:/work/out
+    working_dir: /app
+    ipc: host
+
+volumes:
+  ck2-weights:
+  ck2-vfms:
+  ck2-hf:
