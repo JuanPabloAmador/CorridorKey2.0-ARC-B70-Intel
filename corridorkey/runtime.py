@@ -545,9 +545,8 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                     hint_quality=hint_quality_c,
                 )
             baton_gpu = s1["baton"][0].float()
-            # XPU: a stage-1 window can emit inf/NaN. Drop dead interior
-            # windows entirely (neighbors still cover every frame); keep edge
-            # windows sanitized so no frame goes missing. Never fires on CUDA.
+            # XPU: drop dead interior windows (neighbors cover every frame);
+            # keep edge windows sanitized. Never fires on CUDA.
             baton_ok = bool(torch.isfinite(baton_gpu).all().item())
             baton_gpu = torch.nan_to_num(baton_gpu, nan=0.0)
             if carry_hint_from_aux:
@@ -555,10 +554,8 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                 aux_full = F.interpolate(
                     aux_alpha, size=(H, W), mode="bilinear",
                     align_corners=False).clamp(0.0, 1.0)
-                # A broken aux must not travel: caching zeros at 0.95 trust
-                # would read as "confident background" and suppress the
-                # subject for all later windows. Drop those frames instead;
-                # downstream they fall back to the honest no-hint signal.
+                # A broken aux must not travel: zeros at 0.95 trust read as
+                # "confident background". Drop those frames instead.
                 aux_cpu = torch.nan_to_num(
                     aux_full.to("cpu", dtype=torch.bfloat16),
                     nan=0.0, posinf=1.0, neginf=0.0)
