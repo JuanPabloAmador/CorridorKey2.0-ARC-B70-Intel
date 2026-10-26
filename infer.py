@@ -10,8 +10,7 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 from pathlib import Path
 
-import torch
-
+from corridorkey.device import resolve_device
 from corridorkey.runtime import (
     InferenceConfig,
     RuntimePaths,
@@ -52,6 +51,9 @@ def main():
     ap.add_argument("--weights", default=None,
                     help="Runtime checkpoint (.safetensors or legacy .pt). "
                          "Defaults to weights/corridorkey_v2.safetensors.")
+    ap.add_argument("--device", default="auto",
+                    choices=("auto", "cuda", "xpu", "cpu"),
+                    help="Compute device: auto (cuda if present, else xpu), cuda, xpu, cpu.")
     ap.add_argument("--hint_first_frame", default=None,
                     help="Optional matte image/dir; first frame only.")
     ap.add_argument("--hint_video", default=None,
@@ -117,8 +119,10 @@ def main():
                     default=2048)
     args = ap.parse_args()
 
-    if not torch.cuda.is_available():
-        raise RuntimeError("CorridorKey v2 runtime requires a CUDA GPU.")
+    device = resolve_device(args.device)
+    if device.type == "cpu":
+        raise RuntimeError("CorridorKey v2 runtime requires a GPU (cuda or xpu).")
+    print(f"Using device: {device}", flush=True)
     require_ffmpeg(args.ffmpeg_bin)
     package_root = Path(__file__).resolve().parent
     paths = RuntimePaths.from_package(package_root, args.weights)
@@ -166,7 +170,7 @@ def main():
         output_format=args.output_format,
         exr_dtype=args.exr_dtype,
     )
-    model = load_model(paths, device="cuda")
+    model = load_model(paths, device=device)
     run_inference(
         model,
         args.input,
