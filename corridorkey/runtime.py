@@ -544,20 +544,25 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
                     rvm_feat=rvm_feat, t_stride=1.0,
                     hint_quality=hint_quality_c,
                 )
-            baton_gpu = torch.nan_to_num(
-                s1["baton"][0].float(), nan=0.0)
-            # XPU: a stage-1 window can emit inf/NaN; contain it so one bad
-            # window can't poison the rest. No-op on CUDA.
+            baton_gpu = s1["baton"][0].float()
+            # XPU: drop dead interior windows (neighbors cover every frame);
+            # keep edge windows sanitized. Never fires on CUDA.
+            baton_ok = bool(torch.isfinite(baton_gpu).all().item())
+            baton_gpu = torch.nan_to_num(baton_gpu, nan=0.0)
             if carry_hint_from_aux:
                 aux_alpha = s1["aux"][0, :, 0:1].float()
                 aux_full = F.interpolate(
                     aux_alpha, size=(H, W), mode="bilinear",
                     align_corners=False).clamp(0.0, 1.0)
-                # Same containment for the carried aux.
+                # A broken aux must not travel: zeros at 0.95 trust read as
+                # "confident background". Drop those frames instead.
                 aux_cpu = torch.nan_to_num(
                     aux_full.to("cpu", dtype=torch.bfloat16),
                     nan=0.0, posinf=1.0, neginf=0.0)
+                bad = ~torch.isfinite(aux_cpu.float()).reshape(Tc, -1).all(dim=1)
                 for j, t_abs in enumerate(range(t0, t1)):
+                    if bool(bad[j]):
+                        continue
                     carry_cache[t_abs] = aux_cpu[j].clone()
                 next_start = starts[i + 1] if i + 1 < len(starts) else T_all
                 for old_t in [k for k in carry_cache if k < next_start]:
@@ -566,8 +571,11 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
             w = taper_weights(Tc, overlap, is_first=(i == 0),
                               is_last=(i == len(starts) - 1),
                               device="cpu", dtype=torch.float32)
-            weighted = (baton_gpu * w.to(device).view(Tc, 1, 1, 1)).to("cpu").numpy()
-            w_np = w.numpy()
+            if not baton_ok and 0 < i < len(starts) - 1:
+                print(f"      window {i + 1}/{len(starts)} [{t0}:{t1}] BAD baton, dropped (neighbors cover)", flush=True)
+            w_use = w if (baton_ok or i == 0 or i == len(starts) - 1) else torch.zeros_like(w)
+            weighted = (baton_gpu * w_use.to(device).view(Tc, 1, 1, 1)).to("cpu").numpy()
+            w_np = w_use.numpy()
             for j, t_abs in enumerate(range(t0, t1)):
                 if t_abs not in live_acc:
                     live_acc[t_abs] = weighted[j].copy()
