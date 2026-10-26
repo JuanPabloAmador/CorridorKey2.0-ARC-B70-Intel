@@ -12,6 +12,8 @@ Works at 1080p with these settings:
 
 `--device xpu --hann_chunk 48 --hann_stride 24 --outputs alpha fg`
 
+Still unstable: brief (~1 s) black spans can occur.
+
 4K doesn't work yet.
 
 ## Requirements
