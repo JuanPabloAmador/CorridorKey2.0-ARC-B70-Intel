@@ -738,17 +738,15 @@ def _sdpa_with_region_ids(
     full = valid.all(dim=1) & (region_ids == first).all(dim=1)
     full_idx = torch.nonzero(full, as_tuple=False).flatten()
     if full_idx.numel() > 0:
-        out.index_copy_(
-            0,
-            full_idx,
-            F.scaled_dot_product_attention(
-                q.index_select(0, full_idx),
-                k.index_select(0, full_idx),
-                v.index_select(0, full_idx),
-                dropout_p=0.0,
-                is_causal=False,
-            ),
+        full_attn = F.scaled_dot_product_attention(
+            q.index_select(0, full_idx),
+            k.index_select(0, full_idx),
+            v.index_select(0, full_idx),
+            dropout_p=0.0,
+            is_causal=False,
         )
+        # Same XPU autocast dtype hazard as above; no-op on CUDA.
+        out.index_copy_(0, full_idx, full_attn.to(out.dtype))
 
     partial = torch.nonzero(~full, as_tuple=False).flatten()
     if partial.numel() == 0:
@@ -781,7 +779,7 @@ def _sdpa_with_region_ids(
             dropout_p=0.0,
             is_causal=False,
         )
-        out_nlhd[win_idx[:, None], token_idx[None, :]] = attn.permute(0, 2, 1, 3)
+        out_nlhd[win_idx[:, None], token_idx[None, :]] = attn.permute(0, 2, 1, 3).to(out.dtype)
     return out
 
 
@@ -897,17 +895,16 @@ def _sdpa_with_region_groups(
     out = torch.zeros_like(q)
     if full_idx:
         win_idx = _batched_windows(full_idx)
-        out.index_copy_(
-            0,
-            win_idx,
-            F.scaled_dot_product_attention(
-                q.index_select(0, win_idx),
-                k.index_select(0, win_idx),
-                v.index_select(0, win_idx),
-                dropout_p=0.0,
-                is_causal=False,
-            ),
+        full_attn = F.scaled_dot_product_attention(
+            q.index_select(0, win_idx),
+            k.index_select(0, win_idx),
+            v.index_select(0, win_idx),
+            dropout_p=0.0,
+            is_causal=False,
         )
+        # XPU autocast may return bf16 while q is fp32 (on CUDA both match);
+        # the cast is a no-op where dtypes already agree.
+        out.index_copy_(0, win_idx, full_attn.to(out.dtype))
     if not groups:
         return out
 
@@ -922,7 +919,7 @@ def _sdpa_with_region_groups(
             dropout_p=0.0,
             is_causal=False,
         )
-        out_nlhd[win_idx[:, None], token_idx[None, :]] = attn.permute(0, 2, 1, 3)
+        out_nlhd[win_idx[:, None], token_idx[None, :]] = attn.permute(0, 2, 1, 3).to(out.dtype)
     return out
 
 
