@@ -1,0 +1,44 @@
+# CorridorKey 2.0 on Intel Arc (XPU). Batch use, no ports:
+#   ./corridorkey-docker my-clip.mp4 my-first-run
+# Weights (~5 GB) download themselves on first boot into named volumes;
+# code ships inside the image (needs no mounts).
+name: corridorkey2-b70
+
+services:
+  corridorkey:
+    build:
+      context: .
+      # Default base in the Dockerfile (digest-pinned Ubuntu + Intel debs);
+      # override if needed:
+      # args:
+      #   UBUNTU_DIGEST: sha256:...
+    image: corridorkey2-b70:latest
+    container_name: ${CK2_CONTAINER:-corridorkey2-b70}
+    # The GPU (renderD*) is exposed as a device; the render group grants access.
+    # RENDER_GID is computed by the ./corridorkey-docker wrapper (getent group render).
+    devices:
+      - ${DRI_DEVICE:-/dev/dri/renderD128}:/dev/dri/renderD128
+    user: "0:0" # entrypoint drops to TARGET_UID:GID after fixing permissions
+    environment:
+      TARGET_UID: ${TARGET_UID:-1000}
+      TARGET_GID: ${TARGET_GID:-1000}
+      RENDER_GID: ${RENDER_GID:-}
+      DRI_DEVICE: /dev/dri/renderD128
+      OPENCV_IO_ENABLE_OPENEXR: "1"
+      HF_TOKEN: ${HF_TOKEN:-}
+      CK2_SKIP_DOWNLOAD: ${CK2_SKIP_DOWNLOAD:-0}
+    volumes:
+      # Weights and cache: persist across runs, outside the checkout.
+      - ck2-weights:/app/weights
+      - ck2-vfms:/app/vfms
+      - ck2-hf:/cache/hf
+      # User I/O (the ./corridorkey-docker wrapper points them at ./clips and ./outputs).
+      - ${CK2_INPUT_DIR:-./clips}:/work/in:ro
+      - ${CK2_OUTPUT_DIR:-./outputs}:/work/out
+    working_dir: /app
+    ipc: host
+
+volumes:
+  ck2-weights:
+  ck2-vfms:
+  ck2-hf:

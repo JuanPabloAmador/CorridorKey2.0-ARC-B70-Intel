@@ -1,0 +1,13 @@
+.git/
+.gitignore
+weights/
+vfms/
+data/
+*.mp4
+*.mov
+*.exr
+*.f16
+.env
+clips/
+outputs/
+tmp/

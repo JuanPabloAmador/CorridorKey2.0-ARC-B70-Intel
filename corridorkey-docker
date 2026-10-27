@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# corridorkey-docker — easy way to run CorridorKey 2.0 in Docker (Intel Arc XPU).
+# Usage: ./corridorkey-docker <input> <output> [infer.py args...]
+#   <input>:  file in ./clips (e.g. my-clip.mp4) or absolute host path.
+#   <output>: subfolder of ./outputs (e.g. my-first-run) or absolute host path.
+# Example:
+#   ./corridorkey-docker my-clip.mp4 my-first-run
+#   ./corridorkey-docker my-clip.mp4 with-hint --hint_first_frame /work/in/hint.png --hint_quality 0.95
+set -euo pipefail
+cd "$(dirname "$0")"
+# Create I/O dirs as the user BEFORE compose auto-creates them as root.
+mkdir -p clips outputs
+
+usage() {
+  echo "Usage: ./corridorkey-docker <input> <output> [infer.py args...]" >&2
+  echo "  ./corridorkey-docker --help  -> infer.py help" >&2
+  exit "${1:-1}"
+}
+
+# Passthrough: ./corridorkey-docker --help, ./corridorkey-docker --any-flag...
+if [ $# -eq 0 ]; then usage; fi
+if [[ "$1" == -* ]]; then
+  exec docker compose run --rm --build corridorkey "$@"
+fi
+[ $# -ge 2 ] || usage
+INPUT="$1"; OUTPUT="$2"; shift 2
+
+# Stable B70 recipe (any flag passed explicitly wins).
+ARGS=()
+[[ " $* " == *" --device "* ]] || ARGS+=(--device xpu)
+[[ " $* " == *" --hann_chunk "* ]] || ARGS+=(--hann_chunk 48)
+[[ " $* " == *" --hann_stride "* ]] || ARGS+=(--hann_stride 24)
+[[ " $* " == *" --outputs "* ]] || ARGS+=(--outputs alpha fg)
+[[ " $* " == *" --no_carry_hint "* ]] || ARGS+=(--no_carry_hint)
+ARGS+=("$@")
+
+# I/O: ./clips and ./outputs by default; absolute paths via /work/host-*.
+EXTRA_VOL=()
+if [[ "$INPUT" = /* ]]; then
+  EXTRA_VOL+=(-v "$(dirname "$INPUT"):/work/host-in:ro")
+  IN_ARG="/work/host-in/$(basename "$INPUT")"
+else
+  IN_ARG="/work/in/$INPUT"
+fi
+if [[ "$OUTPUT" = /* ]]; then
+  mkdir -p "$OUTPUT"
+  EXTRA_VOL+=(-v "$OUTPUT:/work/host-out")
+  OUT_ARG="/work/host-out"
+else
+  mkdir -p "outputs/$OUTPUT"
+  OUT_ARG="/work/out/$OUTPUT"
+fi
+
+export TARGET_UID="$(id -u)" TARGET_GID="$(id -g)"
+# Group owning /dev/dri (usually render, video on some distros).
+export RENDER_GID="$(getent group render | cut -d: -f3 || true)"
+[ -n "$RENDER_GID" ] || RENDER_GID="$(getent group video | cut -d: -f3 || true)"
+export DRI_DEVICE="${DRI_DEVICE:-/dev/dri/renderD128}"
+[ -e "$DRI_DEVICE" ] || { echo "ERROR: $DRI_DEVICE not found (Intel GPU not visible?)." >&2; exit 1; }
+
+# shellcheck disable=SC2086
+exec docker compose run --rm --build ${EXTRA_VOL[@]+"${EXTRA_VOL[@]}"} corridorkey \
+  --input "$IN_ARG" --output_dir "$OUT_ARG" "${ARGS[@]}"
