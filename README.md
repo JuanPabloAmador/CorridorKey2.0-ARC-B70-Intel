@@ -18,6 +18,15 @@ Still unstable: brief (~1 s) black spans can occur.
 
 ## Requirements
 
+Docker path:
+
+- Docker Engine with Compose v2.
+- Intel Arc GPU visible at `/dev/dri/renderD128` (`DRI_DEVICE` overrides it).
+- ~15 GB free (image + weights, both fetched on first run).
+- Network on first run (image layers and ~5 GB of weights download then).
+
+Venv path:
+
 - Intel Arc with XPU stack (`/dev/dri/renderD128`).
 - Python 3.14 with XPU-enabled PyTorch (the one in Quickstart).
 - ~10 GB for weights, downloaded by `scripts/download_weights.py`.

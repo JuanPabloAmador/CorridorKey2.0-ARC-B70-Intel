@@ -24,8 +24,10 @@ vfms/**
 
 # Outputs & Temporary Files
 out*/
-outputs/
-clips/
+clips/*
+!clips/.gitkeep
+outputs/*
+!outputs/.gitkeep
 .env
 tmp/
 *.mov

@@ -52,7 +52,9 @@ else
 fi
 
 export TARGET_UID="$(id -u)" TARGET_GID="$(id -g)"
+# Group owning /dev/dri (usually render, video on some distros).
 export RENDER_GID="$(getent group render | cut -d: -f3 || true)"
+[ -n "$RENDER_GID" ] || RENDER_GID="$(getent group video | cut -d: -f3 || true)"
 export DRI_DEVICE="${DRI_DEVICE:-/dev/dri/renderD128}"
 [ -e "$DRI_DEVICE" ] || { echo "ERROR: $DRI_DEVICE not found (Intel GPU not visible?)." >&2; exit 1; }
 
