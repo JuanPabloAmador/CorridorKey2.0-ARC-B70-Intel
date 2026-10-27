@@ -296,7 +296,8 @@ def probe_frame_dir_meta(frame_dir: str, *, num_frames: int,
     return meta
 
 
-def preprocess_video_frame_views(frame_bgr, meta: dict, *, need_model: bool):
+def preprocess_video_frame_views(frame_bgr, meta: dict, *, need_model: bool,
+                                   device=None):
     h_out, w_out = meta["shape_hw"]
     h_model, w_model = meta["model_native_hw"]
     frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
@@ -305,6 +306,22 @@ def preprocess_video_frame_views(frame_bgr, meta: dict, *, need_model: bool):
     review = torch.from_numpy(frame.transpose(2, 0, 1)).to(dtype=torch.bfloat16)
     if not need_model and not has_linear_adjust(meta):
         return None, review, review
+    if device is not None:
+        # Same equations on the accelerator (torch ops follow the tensor's
+        # device, CUDA or XPU alike). Values match the CPU path up to fp32
+        # rounding; the harness guards the visual result.
+        t = torch.from_numpy(frame.transpose(2, 0, 1)).to(device)
+        linear_model = apply_linear_adjust(cu.srgb_to_linear(t), meta)
+        if has_linear_adjust(meta):
+            foundation = cu.linear_to_vfm_sdr_torch(
+                linear_model).cpu().to(dtype=torch.bfloat16)
+        else:
+            foundation = review
+        if not need_model:
+            return None, foundation, review
+        model_t = cu.linear_to_asinh(linear_model).cpu().to(
+            dtype=torch.bfloat16)
+        return model_t, foundation, review
     linear = cu.srgb_to_linear(frame)
     linear_model = apply_linear_adjust(linear, meta)
     if has_linear_adjust(meta):
@@ -320,7 +337,8 @@ def preprocess_video_frame_views(frame_bgr, meta: dict, *, need_model: bool):
     return model_t, foundation, review
 
 
-def preprocess_frame_dir_path(path: str, meta: dict, *, need_model: bool):
+def preprocess_frame_dir_path(path: str, meta: dict, *, need_model: bool,
+                                device=None):
     h_out, w_out = meta["shape_hw"]
     h_model, w_model = meta["model_native_hw"]
     display, linear = _read_frame_dir_views(
@@ -333,15 +351,22 @@ def preprocess_frame_dir_path(path: str, meta: dict, *, need_model: bool):
     if not need_model:
         return None, display_t, display_t
     linear, _ = center_pad_to_shape(linear, h_out, w_out)
+    if device is not None:
+        # Same equations on the accelerator; see preprocess_video_frame_views.
+        model_t = cu.linear_to_asinh(
+            torch.from_numpy(linear.transpose(2, 0, 1)).to(
+                device)).cpu().to(dtype=torch.bfloat16)
+        return model_t, display_t, display_t
     model = cu.linear_to_asinh(linear)
     model_t = torch.from_numpy(model.transpose(2, 0, 1)).to(dtype=torch.bfloat16)
     return model_t, display_t, display_t
 
 
 class SequentialVideoWindowReader:
-    def __init__(self, video_path: str, meta: dict):
+    def __init__(self, video_path: str, meta: dict, device=None):
         self.video_path = video_path
         self.meta = meta
+        self.device = device
         self.cap = cv2.VideoCapture(video_path)
         if not self.cap.isOpened():
             raise RuntimeError(f"Could not open video: {video_path}")
@@ -363,7 +388,7 @@ class SequentialVideoWindowReader:
                     f"{self.video_path}: failed decoding frame "
                     f"{self.start_frame + self.next_t}")
             self.cache[self.next_t] = preprocess_video_frame_views(
-                frame, self.meta, need_model=True)
+                frame, self.meta, need_model=True, device=self.device)
             self.next_t += 1
 
     def window(self, t0: int, t1: int):
@@ -377,9 +402,10 @@ class SequentialVideoWindowReader:
 
 
 class SequentialFrameDirWindowReader:
-    def __init__(self, frame_dir: str, meta: dict):
+    def __init__(self, frame_dir: str, meta: dict, device=None):
         self.frame_dir = frame_dir
         self.meta = meta
+        self.device = device
         self.paths = meta["frame_paths"]
         self.next_t = 0
         self.cache: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
@@ -390,7 +416,8 @@ class SequentialFrameDirWindowReader:
     def _read_until(self, t_end: int):
         while self.next_t < t_end:
             self.cache[self.next_t] = preprocess_frame_dir_path(
-                self.paths[self.next_t], self.meta, need_model=True)
+                self.paths[self.next_t], self.meta, need_model=True,
+                device=self.device)
             self.next_t += 1
 
     def window(self, t0: int, t1: int):
@@ -404,7 +431,7 @@ class SequentialFrameDirWindowReader:
 
 
 def iter_video_frame_chunks(video_path: str, meta: dict, *, chunk_size: int,
-                            need_model: bool):
+                            need_model: bool, device=None):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {video_path}")
@@ -421,7 +448,7 @@ def iter_video_frame_chunks(video_path: str, meta: dict, *, chunk_size: int,
                 if not ret:
                     break
                 model, foundation, _review = preprocess_video_frame_views(
-                    frame, meta, need_model=need_model)
+                    frame, meta, need_model=need_model, device=device)
                 if need_model:
                     model_list.append(model)
                 foundation_list.append(foundation)
@@ -437,7 +464,7 @@ def iter_video_frame_chunks(video_path: str, meta: dict, *, chunk_size: int,
 
 
 def iter_frame_dir_chunks(frame_dir: str, meta: dict, *, chunk_size: int,
-                          need_model: bool):
+                          need_model: bool, device=None):
     paths = meta["frame_paths"]
     t = 0
     while t < len(paths):
@@ -446,7 +473,7 @@ def iter_frame_dir_chunks(frame_dir: str, meta: dict, *, chunk_size: int,
         foundation_list = []
         while t < len(paths) and len(foundation_list) < chunk_size:
             model, foundation, _review = preprocess_frame_dir_path(
-                paths[t], meta, need_model=need_model)
+                paths[t], meta, need_model=need_model, device=device)
             if need_model:
                 model_list.append(model)
             foundation_list.append(foundation)
