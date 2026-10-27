@@ -55,8 +55,30 @@ export TARGET_UID="$(id -u)" TARGET_GID="$(id -g)"
 # Group owning /dev/dri (usually render, video on some distros).
 export RENDER_GID="$(getent group render | cut -d: -f3 || true)"
 [ -n "$RENDER_GID" ] || RENDER_GID="$(getent group video | cut -d: -f3 || true)"
-export DRI_DEVICE="${DRI_DEVICE:-/dev/dri/renderD128}"
-[ -e "$DRI_DEVICE" ] || { echo "ERROR: $DRI_DEVICE not found (Intel GPU not visible?)." >&2; exit 1; }
+
+# Find the Intel render node (vendor 0x8086); DRI_DEVICE overrides the guess.
+detect_intel_render() {
+  for d in /dev/dri/renderD*; do
+    [ -e "$d" ] || continue
+    if [ "$(cat "/sys/class/drm/$(basename "$d")/device/vendor" 2>/dev/null)" = "0x8086" ]; then
+      echo "$d"
+      return 0
+    fi
+  done
+  return 1
+}
+if [ -z "${DRI_DEVICE:-}" ]; then
+  DRI_DEVICE="$(detect_intel_render || true)"
+fi
+if [ -z "$DRI_DEVICE" ]; then
+  echo "ERROR: no Intel GPU render node under /dev/dri." >&2
+  echo "The host needs an Intel GPU driver with support for your card" >&2
+  echo "(Battlemage needs Ubuntu 26.04 or newer out of the box):" >&2
+  echo "https://dgpu-docs.intel.com/installation-guides/index.html" >&2
+  exit 1
+fi
+[ -e "$DRI_DEVICE" ] || { echo "ERROR: $DRI_DEVICE not found." >&2; exit 1; }
+export DRI_DEVICE
 
 # shellcheck disable=SC2086
 exec docker compose run --rm --build ${EXTRA_VOL[@]+"${EXTRA_VOL[@]}"} corridorkey \

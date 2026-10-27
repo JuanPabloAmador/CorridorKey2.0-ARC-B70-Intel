@@ -21,7 +21,7 @@ Still unstable: brief (~1 s) black spans can occur.
 Docker path:
 
 - Docker Engine with Compose v2.
-- Intel Arc GPU visible at `/dev/dri/renderD128` (`DRI_DEVICE` overrides it).
+- Host with an Intel Arc GPU and a kernel driver that supports it. Battlemage cards work out of the box on Ubuntu 26.04 and newer; older releases may need a newer kernel or Intel's driver ([choosing a path](https://dgpu-docs.intel.com/installation-guides/index.html)). The wrapper finds the Intel render node on its own (`DRI_DEVICE` overrides the guess).
 - ~15 GB free (image + weights, both fetched on first run).
 - Network on first run (image layers and ~5 GB of weights download then).
 
