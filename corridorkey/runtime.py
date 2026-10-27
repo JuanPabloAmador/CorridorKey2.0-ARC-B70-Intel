@@ -324,9 +324,9 @@ def precompute_rvm_to_memmap(model, source, meta, rvm_path: Path,
     mean = model.foundations.rvm_mean.view(1, 1, -1, 1, 1).float().cpu()
     std = model.foundations.rvm_std.view(1, 1, -1, 1, 1).float().cpu().clamp(min=1e-6)
     if reader_kind == "video":
-        chunks = iter_video_frame_chunks(str(source), meta, chunk_size=chunk, need_model=False)
+        chunks = iter_video_frame_chunks(str(source), meta, chunk_size=chunk, need_model=False, device=device)
     else:
-        chunks = iter_frame_dir_chunks(str(source), meta, chunk_size=chunk, need_model=False)
+        chunks = iter_frame_dir_chunks(str(source), meta, chunk_size=chunk, need_model=False, device=device)
     state = None
     with ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_next_or_none, chunks)
@@ -377,9 +377,9 @@ def precompute_foundations_to_memmap(model, source, meta, prefix: Path,
                                shape=paths["cradio_shape"])
     print(f"    frozen VFM prepass: T={T_all}, grid={w64}x{h64}, chunk={chunk}")
     if reader_kind == "video":
-        chunks = iter_video_frame_chunks(str(source), meta, chunk_size=chunk, need_model=False)
+        chunks = iter_video_frame_chunks(str(source), meta, chunk_size=chunk, need_model=False, device=device)
     else:
-        chunks = iter_frame_dir_chunks(str(source), meta, chunk_size=chunk, need_model=False)
+        chunks = iter_frame_dir_chunks(str(source), meta, chunk_size=chunk, need_model=False, device=device)
     with ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_next_or_none, chunks)
         while True:
@@ -470,7 +470,7 @@ def hann_stage1_stream(model, source, meta, *, reader_cls, reader_kind: str,
             cradio_map = np.memmap(foundation_paths["cradio"], dtype=np.float32,
                                    mode="r", shape=tuple(foundation_paths["cradio_shape"]))
 
-    reader = reader_cls(str(source), meta)
+    reader = reader_cls(str(source), meta, device=device)
     hint_reader = make_hint_reader(full_hint_video_path, meta)
     carry_cache = {}
     stage2_frame_cache = {}
@@ -638,29 +638,30 @@ def _despill_average_srgb_torch(fg: torch.Tensor, strength: float = 0.5) -> torc
     return fg * (1.0 - strength) + full * strength
 
 
-def _srgb_to_bgr_uint16_cpu(x: torch.Tensor) -> np.ndarray:
+def _srgb_to_bgr_uint16(x: torch.Tensor) -> np.ndarray:
+    # GPU-first shuffle/scale, single D2H. Truncation matches numpy astype.
     x = x.clamp(0.0, 1.0)
-    x = x[:, [2, 1, 0]].permute(0, 2, 3, 1).contiguous().cpu().numpy()
-    return (x * 65535.0).astype(np.uint16)
+    x = (x[:, [2, 1, 0]].permute(0, 2, 3, 1).contiguous() * 65535.0)
+    return x.to(torch.uint16).cpu().numpy()
 
 
-def _srgb_to_bgra_uint16_cpu(rgb: torch.Tensor, alpha: torch.Tensor) -> np.ndarray:
+def _srgb_to_bgra_uint16(rgb: torch.Tensor, alpha: torch.Tensor) -> np.ndarray:
     rgb = rgb.clamp(0.0, 1.0)
     alpha = alpha.clamp(0.0, 1.0)
     bgra = torch.cat([rgb[:, [2, 1, 0]], alpha], dim=1)
-    bgra = bgra.permute(0, 2, 3, 1).contiguous().cpu().numpy()
-    return (bgra * 65535.0).astype(np.uint16)
+    bgra = bgra.permute(0, 2, 3, 1).contiguous() * 65535.0
+    return bgra.to(torch.uint16).cpu().numpy()
 
 
-def _chw_to_bgr_f32_cpu(x: torch.Tensor) -> np.ndarray:
+def _chw_to_bgr_f32(x: torch.Tensor) -> np.ndarray:
     return (x[:, [2, 1, 0]].permute(0, 2, 3, 1)
-            .contiguous().cpu().numpy().astype(np.float32, copy=False))
+            .contiguous().to(torch.float32).cpu().numpy())
 
 
-def _chw_to_bgra_f32_cpu(rgb: torch.Tensor, alpha: torch.Tensor) -> np.ndarray:
+def _chw_to_bgra_f32(rgb: torch.Tensor, alpha: torch.Tensor) -> np.ndarray:
     bgra = torch.cat([rgb[:, [2, 1, 0]], alpha], dim=1)
     return (bgra.permute(0, 2, 3, 1)
-            .contiguous().cpu().numpy().astype(np.float32, copy=False))
+            .contiguous().to(torch.float32).cpu().numpy())
 
 
 def _render_predictions_exr_torch(meta: dict, outputs: set[str],
@@ -691,11 +692,11 @@ def _render_predictions_exr_torch(meta: dict, outputs: set[str],
     pf_linear = _linear_adjust_inverse_torch(cu.asinh_to_linear(pf_model), meta)
     pf_linear = _resize_output_torch(pf_linear, meta)
     if "fg" in outputs:
-        rendered["fg"] = _chw_to_bgr_f32_cpu(pf_linear)
+        rendered["fg"] = _chw_to_bgr_f32(pf_linear)
     if "cutout" in outputs:
         pf_linear_despilled = _despill_average_srgb_torch(
             pf_linear, strength=despill_strength)
-        rendered["cutout"] = _chw_to_bgra_f32_cpu(pf_linear_despilled, pa)
+        rendered["cutout"] = _chw_to_bgra_f32(pf_linear_despilled, pa)
     if "checker" in outputs:
         checker_b = checker.to(device=pf_linear.device,
                                dtype=pf_linear.dtype).unsqueeze(0)
@@ -703,7 +704,7 @@ def _render_predictions_exr_torch(meta: dict, outputs: set[str],
         pf_despill = _despill_average_srgb_torch(
             pf_linear, strength=despill_strength)
         comp_lin = pf_despill * pa + bg_lin * (1.0 - pa)
-        rendered["checker"] = _chw_to_bgr_f32_cpu(comp_lin)
+        rendered["checker"] = _chw_to_bgr_f32(comp_lin)
     return rendered
 
 
@@ -722,7 +723,7 @@ def _render_predictions_torch(meta: dict, outputs: set[str],
     pa = _resize_output_torch(pa_model, meta).clamp(0.0, 1.0)
     rendered: dict[str, np.ndarray] = {}
     if "alpha" in outputs:
-        rendered["alpha"] = _srgb_to_bgr_uint16_cpu(pa.expand(-1, 3, -1, -1))
+        rendered["alpha"] = _srgb_to_bgr_uint16(pa.expand(-1, 3, -1, -1))
     if not (outputs & {"fg", "cutout", "checker"}):
         return rendered
 
@@ -732,15 +733,15 @@ def _render_predictions_torch(meta: dict, outputs: set[str],
     pf_linear_pos = pf_linear.clamp(min=0.0)
     pf = _resize_output_torch(cu.linear_to_srgb(pf_linear_pos), meta).clamp(0.0, 1.0)
     if "fg" in outputs:
-        rendered["fg"] = _srgb_to_bgr_uint16_cpu(pf)
+        rendered["fg"] = _srgb_to_bgr_uint16(pf)
     if "cutout" in outputs:
         pf_linear_despilled = _despill_average_srgb_torch(pf_linear_pos, strength=despill_strength)
         if meta.get("cutout_linear", False):
             pf_linear_despilled_resized = _resize_output_torch(pf_linear_despilled, meta).clamp(0.0, 1.0)
-            rendered["cutout"] = _srgb_to_bgra_uint16_cpu(pf_linear_despilled_resized, pa)
+            rendered["cutout"] = _srgb_to_bgra_uint16(pf_linear_despilled_resized, pa)
         else:
             pf_despill = _despill_average_srgb_torch(pf, strength=despill_strength)
-            rendered["cutout"] = _srgb_to_bgra_uint16_cpu(pf_despill, pa)
+            rendered["cutout"] = _srgb_to_bgra_uint16(pf_despill, pa)
     if "checker" in outputs:
         checker_b = checker.to(device=pf.device, dtype=pf.dtype).unsqueeze(0)
         bg_lin = cu.srgb_to_linear(checker_b)
@@ -750,7 +751,7 @@ def _render_predictions_torch(meta: dict, outputs: set[str],
             cu.srgb_to_linear(pf_despill) * alpha + bg_lin * (1.0 - alpha))
         comp_despill = cu.linear_to_srgb(
             comp_despill_lin.clamp(min=0.0)).clamp(0.0, 1.0)
-        rendered["checker"] = _srgb_to_bgr_uint16_cpu(comp_despill)
+        rendered["checker"] = _srgb_to_bgr_uint16(comp_despill)
     return rendered
 
 
@@ -936,7 +937,7 @@ def run_inference(model, input_path: str, output_dir: str, cfg: InferenceConfig,
             baton = np.memmap(
                 baton_path, dtype=np.float16, mode="r",
                 shape=(T_all, model.stage1.d_16, H // 16, W // 16))
-            reader = reader_cls(input_path, meta)
+            reader = reader_cls(input_path, meta, device=run_device)
             try:
                 for t0 in range(0, T_all, stage2_batch):
                     t1 = min(T_all, t0 + stage2_batch)
