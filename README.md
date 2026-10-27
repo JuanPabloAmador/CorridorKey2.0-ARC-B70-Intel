@@ -87,7 +87,22 @@ python infer.py --input clip.mp4 --output_dir out \
   --device xpu --hann_chunk 48 --hann_stride 24 --outputs alpha fg
 ```
 
+## Credits
+
+CorridorKey 2.0 was designed and trained by **Zachary Harris**, in direct
+collaboration with **Niko** and **Corridor Digital** — see the
+[original repository](https://github.com/nikopueringer/CorridorKey2.0) and
+[corridorkey.com](https://corridorkey.com). The model, the weights and the
+original code are theirs. What this fork adds is the Intel Arc (XPU) support,
+the container image and this documentation.
+
 ## License
 
-Same as upstream ([LICENSE](LICENSE), CC BY-NC-SA 4.0 with extra terms): free to
-use incl. commercial output, same name and license; $20M+ revenue → plugin license.
+This fork keeps the license of the original project, unchanged: see
+[LICENSE](LICENSE) for the full text and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the third-party components
+and model weights, which keep their own licenses.
+
+Modifications are indicated: this repository is a modified version of
+CorridorKey 2.0, published free of charge under the same terms and keeping the
+CorridorKey name.
