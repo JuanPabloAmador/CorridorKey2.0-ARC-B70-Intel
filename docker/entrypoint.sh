@@ -1,6 +1,6 @@
 #!/bin/bash
-# Entrypoint del contenedor ck2. Corre como root para preparar permisos y
-# luego baja a TARGET_UID:TARGET_GID (+ grupo render para /dev/dri).
+# Container entrypoint. Runs as root to fix permissions, then drops to
+# TARGET_UID:TARGET_GID (+ render group for /dev/dri).
 set -euo pipefail
 
 APP=/app
@@ -9,38 +9,38 @@ GID_="${TARGET_GID:-1000}"
 RENDER_GID="${RENDER_GID:-}"
 DRI="${DRI_DEVICE:-/dev/dri/renderD128}"
 
-# 1. GPU presente.
+# 1. GPU present.
 if [ ! -e "$DRI" ]; then
-  echo "ERROR: no existe $DRI. Expón la GPU (devices: $DRI) y reintenta." >&2
+  echo "ERROR: $DRI not found. Expose the GPU (devices: $DRI) and retry." >&2
   exit 1
 fi
 
-# 2. Directorios escribibles por el usuario de destino.
+# 2. Directories writable by the target user.
 mkdir -p "$APP/weights" "$APP/vfms" "$HF_HOME"
 chown -R "$UID_:$GID_" "$APP/weights" "$APP/vfms" "$HF_HOME"
 
-# 3. Pesos: descargar si faltan (primer arranque). CK2_SKIP_DOWNLOAD=1 lo omite.
+# 3. Weights: download if missing (first boot). CK2_SKIP_DOWNLOAD=1 skips.
 NEED_DL=0
 [ -f "$APP/weights/corridorkey_v2.safetensors" ] || NEED_DL=1
 [ -f "$APP/vfms/moge/model.pt" ] || NEED_DL=1
 [ -f "$APP/vfms/rvm/pretrain_rvm_small16_256_204031069.npz" ] || NEED_DL=1
 [ -d "$APP/vfms/cradio/C-RADIOv4-SO400M" ] || NEED_DL=1
 
-# --help no necesita pesos: no descargar.
+# --help needs no weights: skip download.
 case " $* " in *" --help "*|*" -h "*) NEED_DL=0;; esac
 
 if [ "$NEED_DL" = "1" ]; then
   if [ "${CK2_SKIP_DOWNLOAD:-0}" = "1" ]; then
-    echo "ERROR: faltan pesos en /app/weights y /app/vfms y CK2_SKIP_DOWNLOAD=1." >&2
+    echo "ERROR: weights missing in /app/weights and /app/vfms with CK2_SKIP_DOWNLOAD=1." >&2
     exit 1
   fi
-  echo "[ck2] descargando pesos (~5 GB, solo la primera vez)..."
+  echo "[ck2] downloading weights (~5 GB, first run only)..."
   DROP="setpriv --reuid $UID_ --regid $GID_ --clear-groups"
   # shellcheck disable=SC2086
   $DROP /opt/venv/bin/python "$APP/scripts/download_weights.py" --package_root "$APP"
 fi
 
-# 4. Ejecutar infer.py como usuario no-root (+ render para la GPU).
+# 4. Run infer.py as non-root (+ render for the GPU).
 GROUPS_ARG="--clear-groups"
 [ -n "$RENDER_GID" ] && GROUPS_ARG="--groups $RENDER_GID"
 # shellcheck disable=SC2086

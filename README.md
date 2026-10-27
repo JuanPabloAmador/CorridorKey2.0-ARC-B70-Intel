@@ -30,19 +30,25 @@ Weights (~5 GB) download themselves on first run into Docker volumes.
 ```bash
 git clone https://github.com/JuanPabloAmador/CorridorKey2.0-ARC-B70-Intel.git
 cd CorridorKey2.0-ARC-B70-Intel
-cp clips/mi.mp4 clips/          # your chroma footage goes in ./clips
-./ck2 mi.mp4 p1                # output lands in ./outputs/p1 (alpha + fg)
+cp my-clip.mp4 clips/          # your chroma footage goes in ./clips
+./corridorkey-docker my-clip.mp4 my-first-run
+# output lands in ./outputs/my-first-run (alpha + fg)
 ```
 
 With a first-frame hint (better quality and temporal stability):
 
 ```bash
-./ck2 mi.mp4 p1-hint --hint_first_frame /work/in/hint.png --hint_quality 0.95
+./corridorkey-docker my-clip.mp4 my-hint-run --hint_first_frame /work/in/hint.png --hint_quality 0.95
 ```
 
-`./ck2` applies the stable B70 recipe (`--device xpu --hann_chunk 48
---hann_stride 24 --outputs alpha fg --no_carry_hint`); any flag you pass
-explicitly wins. `./ck2 --help` shows all `infer.py` options. Advanced use
+How it maps: `<input>` is a file in `./clips/` (or an absolute host path),
+`<output>` is a name of our own convention for the subfolder created under
+`./outputs/` (or an absolute host path). Everything after those two
+arguments is passed straight through to `infer.py`, so **all** original
+CorridorKey 2.0 flags are accepted. `./corridorkey-docker` pre-applies the
+stable B70 recipe (`--device xpu --hann_chunk 48 --hann_stride 24 --outputs
+alpha fg --no_carry_hint`); any flag you pass explicitly wins.
+`./corridorkey-docker --help` shows all `infer.py` options. Advanced use
 (custom paths, `docker compose run` directly): see `.env.example`.
 
 ## Quickstart (venv, no Docker)
