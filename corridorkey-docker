@@ -20,7 +20,7 @@ usage() {
 # Passthrough: ./corridorkey-docker --help, ./corridorkey-docker --any-flag...
 if [ $# -eq 0 ]; then usage; fi
 if [[ "$1" == -* ]]; then
-  exec docker compose run --rm corridorkey "$@"
+  exec docker compose run --rm --build corridorkey "$@"
 fi
 [ $# -ge 2 ] || usage
 INPUT="$1"; OUTPUT="$2"; shift 2
@@ -57,5 +57,5 @@ export DRI_DEVICE="${DRI_DEVICE:-/dev/dri/renderD128}"
 [ -e "$DRI_DEVICE" ] || { echo "ERROR: $DRI_DEVICE not found (Intel GPU not visible?)." >&2; exit 1; }
 
 # shellcheck disable=SC2086
-exec docker compose run --rm ${EXTRA_VOL[@]+"${EXTRA_VOL[@]}"} corridorkey \
+exec docker compose run --rm --build ${EXTRA_VOL[@]+"${EXTRA_VOL[@]}"} corridorkey \
   --input "$IN_ARG" --output_dir "$OUT_ARG" "${ARGS[@]}"
