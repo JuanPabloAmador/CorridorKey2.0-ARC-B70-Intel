@@ -8,9 +8,10 @@ services:
   ck2:
     build:
       context: .
-      # Base pineada por defecto en el Dockerfile; override si hace falta:
+      # Base por defecto en el Dockerfile (Ubuntu pineado por digest + repos de
+      # Intel); override si hace falta:
       # args:
-      #   BASE_IMAGE: heroeswearkapes/comfyui-intel-xpu:2026.08.30-8a33128
+      #   UBUNTU_DIGEST: sha256:...
     image: corridorkey2-b70:latest
     container_name: ${CK2_CONTAINER:-corridorkey2-b70}
     # La GPU (renderD*) se expone como device; el grupo render da permiso.
