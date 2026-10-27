@@ -34,13 +34,42 @@ ARGS=()
 [[ " $* " == *" --no_carry_hint "* ]] || ARGS+=(--no_carry_hint)
 ARGS+=("$@")
 
-# I/O: ./clips and ./outputs by default; absolute paths via /work/host-*.
+# I/O: ./clips and ./outputs by default; special cases via /work/job/<ctx>
+# (never nested under the read-only /work/in: docker cannot create nested
+# mountpoints there). The container path never ends in a generic name
+# (input/frames/rgb): those make infer.py fall back to the folder name
+# (upstream rule). Generic names get a descriptive alias from the folder,
+# so outputs are always named after the clip. Extra files next to a
+# remapped input resolve under the same /work/job/<ctx>/ dir.
+GENERIC_NAMES="input frames rgb"
+lower_noext() { # lowercased basename without extension
+  local b; b="$(basename "$1")"; b="${b%.*}"
+  echo "$b" | tr '[:upper:]' '[:lower:]'
+}
+is_generic() {
+  local n; n="$(lower_noext "$1")"
+  local g; for g in $GENERIC_NAMES; do [ "$n" = "$g" ] && return 0; done
+  return 1
+}
+INPUT="${INPUT%/}" # no trailing slash (frame dirs)
+INPUT="${INPUT#./}" # no leading ./ (it breaks alias building)
 EXTRA_VOL=()
 if [[ "$INPUT" = /* ]]; then
-  EXTRA_VOL+=(-v "$(dirname "$INPUT"):/work/host-in:ro")
-  IN_ARG="/work/host-in/$(basename "$INPUT")"
+  CTX="$(dirname "$INPUT")"; CTXBASE="$(basename "$CTX")"
+  [ -n "$CTXBASE" ] || CTXBASE="root"
+  if is_generic "$CTXBASE"; then CTXBASE="job"; fi # /input/input.mp4 etc.
+  EXTRA_VOL+=(-v "$CTX:/work/job/$CTXBASE:ro")
+  IN_ARG="/work/job/$CTXBASE/$(basename "$INPUT")"
 else
-  IN_ARG="/work/in/$INPUT"
+  SRCDIR="$(dirname "clips/$INPUT")" # clips | clips/sub | .
+  JOBDIR="$(echo "$SRCDIR" | tr '/' '-')"
+  if is_generic "$INPUT"; then
+    # clips/input.mp4 -> /work/job/clips/input.mp4 (stem: clips)
+    EXTRA_VOL+=(-v "$(pwd)/$SRCDIR:/work/job/$JOBDIR:ro")
+    IN_ARG="/work/job/$JOBDIR/$(basename "$INPUT")"
+  else
+    IN_ARG="/work/in/$INPUT"
+  fi
 fi
 if [[ "$OUTPUT" = /* ]]; then
   mkdir -p "$OUTPUT"
