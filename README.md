@@ -35,21 +35,30 @@ cp my-clip.mp4 clips/          # your chroma footage goes in ./clips
 # output lands in ./outputs/my-first-run (alpha + fg)
 ```
 
-With a first-frame hint (better quality and temporal stability):
+With a first-frame hint (better quality and temporal stability). The hint
+image also goes in `./clips/`:
 
 ```bash
-./corridorkey-docker my-clip.mp4 my-hint-run --hint_first_frame /work/in/hint.png --hint_quality 0.95
+cp hint.png clips/
+./corridorkey-docker my-clip.mp4 my-hint-run \
+  --hint_first_frame /work/in/hint.png --hint_quality 0.95
 ```
 
-How it maps: `<input>` is a file in `./clips/` (or an absolute host path),
-`<output>` is a name of our own convention for the subfolder created under
-`./outputs/` (or an absolute host path). Everything after those two
-arguments is passed straight through to `infer.py`, so **all** original
-CorridorKey 2.0 flags are accepted. `./corridorkey-docker` pre-applies the
-stable B70 recipe (`--device xpu --hann_chunk 48 --hann_stride 24 --outputs
-alpha fg --no_carry_hint`); any flag you pass explicitly wins.
-`./corridorkey-docker --help` shows all `infer.py` options. Advanced use
-(custom paths, `docker compose run` directly): see `.env.example`.
+Arguments after `<input>` and `<output>` pass straight through to
+`infer.py`, so **all** original CorridorKey 2.0 flags work — but written
+with the container paths from this table (`./corridorkey-docker --help`
+lists every flag):
+
+| On your machine | Inside the extra flags |
+|---|---|
+| `./clips/my-clip.mp4` | `/work/in/my-clip.mp4` |
+| `./outputs/my-first-run` | `/work/out/my-first-run` |
+
+(With absolute host paths for `<input>`/`<output>` there is no mapping to
+think about.) `./corridorkey-docker` pre-applies the stable B70 recipe
+(`--device xpu --hann_chunk 48 --hann_stride 24 --outputs alpha fg
+--no_carry_hint`); any flag you pass explicitly wins. Advanced use
+(`docker compose run` directly, custom folders): see `.env.example`.
 
 ## Quickstart (venv, no Docker)
 
