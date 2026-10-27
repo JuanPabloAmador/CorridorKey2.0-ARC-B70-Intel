@@ -65,6 +65,8 @@ container locations from this table:
 | `./clips/my-clip.mp4` | `/work/in/my-clip.mp4` |
 | `./outputs/my-first-run` | `/work/out/my-first-run` |
 
+Output files take the input file name. Files literally named `input.mp4`, `frames` or `rgb` take the folder name instead; that fallback comes from upstream.
+
 Run `./corridorkey-docker --help` for the full flag list. The wrapper
 pre-applies the stable B70 recipe:
 
