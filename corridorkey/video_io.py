@@ -307,9 +307,9 @@ def preprocess_video_frame_views(frame_bgr, meta: dict, *, need_model: bool,
     if not need_model and not has_linear_adjust(meta):
         return None, review, review
     if device is not None:
-        # Same equations on XPU (torch ops dispatch by tensor device).
-        # Values match the CPU path up to fp32 GPU rounding; the harness
-        # guards the visual result.
+        # Same equations on the accelerator (torch ops follow the tensor's
+        # device, CUDA or XPU alike). Values match the CPU path up to fp32
+        # rounding; the harness guards the visual result.
         t = torch.from_numpy(frame.transpose(2, 0, 1)).to(device)
         linear_model = apply_linear_adjust(cu.srgb_to_linear(t), meta)
         if has_linear_adjust(meta):
@@ -352,7 +352,7 @@ def preprocess_frame_dir_path(path: str, meta: dict, *, need_model: bool,
         return None, display_t, display_t
     linear, _ = center_pad_to_shape(linear, h_out, w_out)
     if device is not None:
-        # Same equations on XPU; see preprocess_video_frame_views.
+        # Same equations on the accelerator; see preprocess_video_frame_views.
         model_t = cu.linear_to_asinh(
             torch.from_numpy(linear.transpose(2, 0, 1)).to(
                 device)).cpu().to(dtype=torch.bfloat16)
