@@ -22,12 +22,13 @@ vfms/**
 *.pt
 *.npz
 
-# Outputs & Temporary Files
-out*/
-clips/*
-!clips/.gitkeep
-outputs/*
-!outputs/.gitkeep
+# Outputs & Temporary Files (anchored + file-level so .gitkeep exceptions work)
+/out/
+/out/*
+/clips/*
+!/clips/.gitkeep
+/outputs/*
+!/outputs/.gitkeep
 .env
 tmp/
 *.mov
