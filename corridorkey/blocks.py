@@ -710,6 +710,19 @@ def _shifted_region_ids_3d(
     return spatial.unsqueeze(1).expand(-1, T, -1).reshape(spatial.shape[0], T * spatial.shape[1])
 
 
+@lru_cache(maxsize=1024)
+def _cached_long_index(key: tuple[int, ...], device: str) -> torch.Tensor:
+    """Index tensor for a static integer tuple, built once per device.
+
+    Region/window layouts are fixed per clip geometry, but the eager path
+    rebuilt these tiny index tensors (with a device sync each) on every
+    attention call. Same values, zero recompute. Returned tensors are
+    read-only inputs to index ops; callers must not modify them in place.
+    """
+    import torch as _torch
+    return _torch.tensor(key, device=device, dtype=_torch.long)
+
+
 def _sdpa_with_region_ids(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -770,8 +783,8 @@ def _sdpa_with_region_ids(
 
     out_nlhd = out.permute(0, 2, 1, 3)
     for token_tuple, win_list in groups.items():
-        win_idx = torch.tensor(win_list, device=q.device, dtype=torch.long)
-        token_idx = torch.tensor(token_tuple, device=q.device, dtype=torch.long)
+        win_idx = _cached_long_index(tuple(win_list), str(q.device))
+        token_idx = _cached_long_index(token_tuple, str(q.device))
         attn = F.scaled_dot_product_attention(
             q.index_select(0, win_idx).index_select(2, token_idx),
             k.index_select(0, win_idx).index_select(2, token_idx),
@@ -885,11 +898,11 @@ def _sdpa_with_region_groups(
     batch_windows = q.shape[0] // num_windows
 
     def _batched_windows(base: tuple[int, ...]) -> torch.Tensor:
-        idx = torch.tensor(base, device=q.device, dtype=torch.long)
+        idx = _cached_long_index(base, str(q.device))
         if batch_windows == 1 or idx.numel() == 0:
             return idx
-        offsets = torch.arange(
-            batch_windows, device=q.device, dtype=torch.long) * num_windows
+        offsets = _cached_long_index(
+            tuple(range(batch_windows)), str(q.device)) * num_windows
         return (idx.unsqueeze(0) + offsets.unsqueeze(1)).reshape(-1)
 
     out = torch.zeros_like(q)
@@ -911,7 +924,7 @@ def _sdpa_with_region_groups(
     out_nlhd = out.permute(0, 2, 1, 3)
     for token_tuple, win_tuple in groups:
         win_idx = _batched_windows(win_tuple)
-        token_idx = torch.tensor(token_tuple, device=q.device, dtype=torch.long)
+        token_idx = _cached_long_index(token_tuple, str(q.device))
         attn = F.scaled_dot_product_attention(
             q.index_select(0, win_idx).index_select(2, token_idx),
             k.index_select(0, win_idx).index_select(2, token_idx),
